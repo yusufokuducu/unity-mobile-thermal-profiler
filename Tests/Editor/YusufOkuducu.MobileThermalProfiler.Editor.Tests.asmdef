@@ -1,0 +1,25 @@
+{
+    "name": "YusufOkuducu.MobileThermalProfiler.Editor.Tests",
+    "rootNamespace": "YusufOkuducu.MobileThermalProfiler.Tests",
+    "references": [
+        "YusufOkuducu.MobileThermalProfiler.Runtime",
+        "YusufOkuducu.MobileThermalProfiler.Editor",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
