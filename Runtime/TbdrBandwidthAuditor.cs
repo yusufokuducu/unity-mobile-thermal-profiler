@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -318,6 +320,56 @@ namespace YusufOkuducu.MobileThermalProfiler
                 default:
                     return 4;
             }
+        }
+
+        public static string ExportTbdrAuditToMarkdown(TbdrAuditReport report, UrpPipelineBandwidthEstimate? pipelineEstimate = null)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("# Mobile TBDR Bandwidth & LPDDR Power Audit Report");
+            sb.AppendLine();
+
+            if (report != null)
+            {
+                sb.AppendLine("## 1. Allocated RenderTextures Audit");
+                sb.AppendLine($"- **RenderTextures Audited**: {report.totalRenderTexturesAudited}");
+                sb.AppendLine($"- **Est. DRAM Traffic @ 60 FPS**: {report.estimatedTotalBandwidthGbpsAt60Fps.ToString("F2", CultureInfo.InvariantCulture)} GB/s (~{report.estimatedDramPowerMilliwattsAt60Fps.ToString("F0", CultureInfo.InvariantCulture)} mW)");
+                sb.AppendLine($"- **Est. DRAM Traffic @ 120 FPS**: {report.estimatedTotalBandwidthGbpsAt120Fps.ToString("F2", CultureInfo.InvariantCulture)} GB/s (~{report.estimatedDramPowerMilliwattsAt120Fps.ToString("F0", CultureInfo.InvariantCulture)} mW)");
+                sb.AppendLine();
+
+                if (report.findings != null && report.findings.Count > 0)
+                {
+                    sb.AppendLine("| RenderTexture | Resolution | MSAA | Color Format | MB/Frame | Power @ 60FPS | Recommendation |");
+                    sb.AppendLine("|---|---|---:|---|---:|---:|---|");
+                    for (int i = 0; i < report.findings.Count; i++)
+                    {
+                        var f = report.findings[i];
+                        sb.Append("| `").Append(f.textureName).Append("` | ")
+                          .Append(f.width).Append('x').Append(f.height).Append(" | ")
+                          .Append(f.antiAliasing).Append("x | `")
+                          .Append(f.colorFormat).Append("` | ")
+                          .Append(f.estimatedTileStoreMegabytesPerFrame.ToString("F2", CultureInfo.InvariantCulture)).Append(" MB | ")
+                          .Append(f.estimatedDramPowerMilliwattsAt60Fps.ToString("F0", CultureInfo.InvariantCulture)).Append(" mW | ")
+                          .Append(f.recommendation).AppendLine(" |");
+                    }
+                    sb.AppendLine();
+                }
+            }
+
+            if (pipelineEstimate.HasValue)
+            {
+                UrpPipelineBandwidthEstimate est = pipelineEstimate.Value;
+                sb.AppendLine("## 2. URP Mobile Camera Pipeline Simulation");
+                sb.AppendLine($"- **Resolution**: {est.width}x{est.height} (MSAA {est.msaaSamples}x)");
+                sb.AppendLine($"- **Total Traffic**: {est.totalMegabytesPerFrame.ToString("F2", CultureInfo.InvariantCulture)} MB/frame ({est.bandwidthGbpsAt60Fps.ToString("F2", CultureInfo.InvariantCulture)} GB/s @ 60 FPS | ~{est.estimatedDramPowerMilliwattsAt60Fps.ToString("F0", CultureInfo.InvariantCulture)} mW)");
+                sb.AppendLine($"- **Exceeds Tier Envelope**: `{est.exceedsTierThermalEnvelope}`");
+                if (est.passBreakdown != null)
+                {
+                    for (int i = 0; i < est.passBreakdown.Count; i++)
+                        sb.AppendLine($"  - {est.passBreakdown[i]}");
+                }
+            }
+
+            return sb.ToString();
         }
     }
 }

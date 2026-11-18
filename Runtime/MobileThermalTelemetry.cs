@@ -129,11 +129,13 @@ namespace YusufOkuducu.MobileThermalProfiler
                 _baselineSamplesCollected++;
             }
 
-            float thermalLoad = externalThermalNormalized >= 0f
-                ? Mathf.Clamp01(externalThermalNormalized)
-                : EstimateThermalDrift(gpuTime, dtMs, targetFrameRate);
+            float safeTargetFps = SanitizeTargetFps(targetFrameRate);
 
-            float targetBudgetMs = targetFrameRate > 0f ? (1000f / targetFrameRate) : 16.67f;
+            float thermalLoad = (!float.IsNaN(externalThermalNormalized) && !float.IsInfinity(externalThermalNormalized) && externalThermalNormalized >= 0f)
+                ? Mathf.Clamp01(externalThermalNormalized)
+                : EstimateThermalDrift(gpuTime, dtMs, safeTargetFps);
+
+            float targetBudgetMs = 1000f / safeTargetFps;
 
             var sample = new FrameTelemetrySample
             {
@@ -143,8 +145,8 @@ namespace YusufOkuducu.MobileThermalProfiler
                 cpuRenderThreadMs = cpuRender,
                 gpuFrameTimeMs = gpuTime,
                 thermalHeadroomNormalized = thermalLoad,
-                allocatedMemoryBytes = Profiler.GetTotalAllocatedMemoryLong(),
-                monoHeapBytes = Profiler.GetMonoUsedSizeLong(),
+                allocatedMemoryBytes = Math.Max(0L, Profiler.GetTotalAllocatedMemoryLong()),
+                monoHeapBytes = Math.Max(0L, Profiler.GetMonoUsedSizeLong()),
                 bottleneck = ClassifyBottleneck(dtMs, cpuMain, cpuRender, gpuTime, thermalLoad, targetBudgetMs)
             };
 
@@ -159,6 +161,8 @@ namespace YusufOkuducu.MobileThermalProfiler
             sample.cpuRenderThreadMs = SanitizeMs(sample.cpuRenderThreadMs);
             sample.gpuFrameTimeMs = SanitizeMs(sample.gpuFrameTimeMs);
             sample.thermalHeadroomNormalized = SanitizeMs(sample.thermalHeadroomNormalized);
+            if (sample.allocatedMemoryBytes < 0) sample.allocatedMemoryBytes = 0;
+            if (sample.monoHeapBytes < 0) sample.monoHeapBytes = 0;
 
             _ringBuffer[_head] = sample;
             _head = (_head + 1) % _ringBuffer.Length;
@@ -180,6 +184,7 @@ namespace YusufOkuducu.MobileThermalProfiler
             var summary = new TelemetrySummary { sampleCount = _count };
             if (_count == 0) return summary;
 
+            float safeTargetFps = SanitizeTargetFps(targetFps);
             float sumFrameMs = 0f;
             float sumCpuMs = 0f;
             float sumRenderMs = 0f;
@@ -192,7 +197,7 @@ namespace YusufOkuducu.MobileThermalProfiler
             int gcSpikeFrames = 0;
             long positiveMonoDeltaSum = 0;
 
-            float budgetMs = targetFps > 0f ? (1000f / targetFps) * 1.15f : 19.2f;
+            float budgetMs = (1000f / safeTargetFps) * 1.15f;
             Span<int> bottleneckCounts = stackalloc int[6];
 
             // Variables for Ordinary Least Squares (OLS) thermal drift slope (ms per second of elapsed time)
@@ -335,7 +340,8 @@ namespace YusufOkuducu.MobileThermalProfiler
             float thermalNormalized,
             float targetBudgetMs)
         {
-            if (targetBudgetMs <= 0.1f) targetBudgetMs = 16.67f;
+            if (float.IsNaN(targetBudgetMs) || float.IsInfinity(targetBudgetMs) || targetBudgetMs <= 0.1f)
+                targetBudgetMs = 16.67f;
 
             if (thermalNormalized >= 0.85f && frameMs > targetBudgetMs * 1.1f)
                 return BottleneckKind.ThermalThrottled;
@@ -358,13 +364,21 @@ namespace YusufOkuducu.MobileThermalProfiler
 
         private float EstimateThermalDrift(float gpuTimeMs, float dtMs, float targetFps)
         {
-            float budget = targetFps > 0f ? 1000f / targetFps : 16.67f;
+            float safeFps = SanitizeTargetFps(targetFps);
+            float budget = 1000f / safeFps;
             if (_baselineGpuMs > 0.5f && gpuTimeMs > 0.5f)
             {
                 float ratio = gpuTimeMs / _baselineGpuMs;
                 return Mathf.Clamp01((ratio - 1.0f) / 0.75f);
             }
             return Mathf.Clamp01((dtMs - budget * 0.7f) / (budget * 0.8f));
+        }
+
+        private static float SanitizeTargetFps(float targetFps)
+        {
+            if (float.IsNaN(targetFps) || float.IsInfinity(targetFps) || targetFps <= 0.1f)
+                return 60f;
+            return targetFps;
         }
 
         private static float SanitizeMs(float val)
@@ -396,11 +410,12 @@ namespace YusufOkuducu.MobileThermalProfiler
 
         public string ExportSummaryToMarkdown(float targetFps = 60f)
         {
-            TelemetrySummary s = ComputeSummary(targetFps);
+            float safeFps = SanitizeTargetFps(targetFps);
+            TelemetrySummary s = ComputeSummary(safeFps);
             var sb = new StringBuilder(512);
             sb.AppendLine("# Mobile Thermal & Frame-Pacing Telemetry Report");
             sb.AppendLine();
-            sb.AppendLine($"- **Samples Analyzed**: {s.sampleCount} (Target: {targetFps.ToString("F0", CultureInfo.InvariantCulture)} FPS)");
+            sb.AppendLine($"- **Samples Analyzed**: {s.sampleCount} (Target: {safeFps.ToString("F0", CultureInfo.InvariantCulture)} FPS)");
             sb.AppendLine($"- **Dominant Bottleneck**: `{s.dominantBottleneck}`");
             sb.AppendLine($"- **Thermal State**: `{s.thermalState}` (Peak Load: {(s.peakThermalLoad * 100f).ToString("F1", CultureInfo.InvariantCulture)}%, Drift Slope: {s.thermalDriftSlopeMsPerSec.ToString("+0.000;-0.000;0.000", CultureInfo.InvariantCulture)} ms/s)");
             sb.AppendLine($"- **Average FPS**: {s.avgFps.ToString("F1", CultureInfo.InvariantCulture)} FPS ({s.avgFrameMs.ToString("F2", CultureInfo.InvariantCulture)} ms)");

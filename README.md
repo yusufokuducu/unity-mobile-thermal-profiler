@@ -56,6 +56,12 @@ public class GamePerfMonitor : MonoBehaviour
 }
 ```
 
+### 3. Headless CI / Batchmode Support (`MobileThermalProfilerCli`)
+Run automated TBDR bandwidth and URP pipeline simulations in CI/CD pipelines:
+```bash
+unity -batchmode -quit -projectPath . -executeMethod YusufOkuducu.MobileThermalProfiler.Editor.MobileThermalProfilerCli.RunCiAudit
+```
+
 ---
 
 ## Running Standalone Unit Tests (.NET CLI)

@@ -123,6 +123,32 @@ namespace YusufOkuducu.MobileThermalProfiler.Tests
             Assert.AreEqual(0f, sanitized.unscaledDeltaTimeMs);
             Assert.AreEqual(0f, sanitized.cpuMainThreadMs);
             Assert.AreEqual(0f, sanitized.gpuFrameTimeMs);
+
+            // Verify Infinity / NaN targetFps does not zero out frame budget or falsely mark smooth frames as VSync misses
+            var smoothTelemetry = new MobileThermalTelemetry(30);
+            for (int i = 0; i < 10; i++)
+            {
+                smoothTelemetry.PushSample(new FrameTelemetrySample
+                {
+                    frameIndex = i,
+                    unscaledDeltaTimeMs = 16.0f,
+                    cpuMainThreadMs = 6.0f,
+                    gpuFrameTimeMs = 8.0f,
+                    allocatedMemoryBytes = -1024L,
+                    monoHeapBytes = -512L
+                });
+            }
+            Assert.AreEqual(0L, smoothTelemetry.GetSampleChronological(0).allocatedMemoryBytes);
+            Assert.AreEqual(0L, smoothTelemetry.GetSampleChronological(0).monoHeapBytes);
+
+            TelemetrySummary infSummary = smoothTelemetry.ComputeSummary(float.PositiveInfinity);
+            TelemetrySummary nanSummary = smoothTelemetry.ComputeSummary(float.NaN);
+            Assert.AreEqual(0, infSummary.vsyncMissFrames);
+            Assert.AreEqual(0, nanSummary.vsyncMissFrames);
+
+            string md = smoothTelemetry.ExportSummaryToMarkdown(float.PositiveInfinity);
+            StringAssert.Contains("Target: 60 FPS", md);
+            StringAssert.DoesNotContain("Infinity", md);
         }
 
         [Test]

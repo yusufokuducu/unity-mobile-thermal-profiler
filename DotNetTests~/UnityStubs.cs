@@ -101,6 +101,11 @@ namespace UnityEngine
         public static bool isPlaying => false;
     }
 
+    public static class Debug
+    {
+        public static void Log(object message) { }
+    }
+
     public struct FrameTiming
     {
         public double cpuMainThreadFrameTime;
@@ -234,6 +239,7 @@ namespace UnityEditor
         public static UnityEngine.Vector2 BeginScrollView(UnityEngine.Vector2 pos) => pos;
         public static void EndScrollView() { }
         public static float Slider(string label, float value, float left, float right) => value;
+        public static int IntField(string label, int value) => value;
         public static Enum EnumPopup(string label, Enum selected) => selected;
         public static bool ToggleLeft(string label, bool value) => value;
     }

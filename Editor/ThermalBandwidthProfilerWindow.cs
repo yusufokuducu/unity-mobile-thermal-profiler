@@ -103,6 +103,13 @@ namespace YusufOkuducu.MobileThermalProfiler.Editor
             EditorGUILayout.LabelField("URP Mobile Camera Pipeline Bandwidth & Power Simulator", EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
+            _simWidth = EditorGUILayout.IntField("Width", _simWidth);
+            _simHeight = EditorGUILayout.IntField("Height", _simHeight);
+            _simMsaa = EditorGUILayout.IntField("MSAA Samples", _simMsaa);
+            _simShadowRes = EditorGUILayout.IntField("Shadow Atlas", _simShadowRes);
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
             _simSocTier = (MobileSoCTier)EditorGUILayout.EnumPopup("Target SoC Tier", _simSocTier);
             _simColorFormat = (GraphicsFormat)EditorGUILayout.EnumPopup("Color Format", _simColorFormat);
             EditorGUILayout.EndHorizontal();
@@ -125,6 +132,19 @@ namespace YusufOkuducu.MobileThermalProfiler.Editor
                     $"@ 60 FPS: {_pipelineEstimate.bandwidthGbpsAt60Fps:F2} GB/s (~{_pipelineEstimate.estimatedDramPowerMilliwattsAt60Fps:F0} mW LPDDR Power) | " +
                     $"@ 120 FPS: {_pipelineEstimate.bandwidthGbpsAt120Fps:F2} GB/s",
                     EditorStyles.boldLabel);
+
+                for (int i = 0; i < _pipelineEstimate.passBreakdown.Count; i++)
+                {
+                    EditorGUILayout.LabelField("• " + _pipelineEstimate.passBreakdown[i], EditorStyles.wordWrappedMiniLabel);
+                }
+
+                if (_pipelineEstimate.optimizationAdvice != null)
+                {
+                    for (int i = 0; i < _pipelineEstimate.optimizationAdvice.Count; i++)
+                    {
+                        EditorGUILayout.LabelField("→ " + _pipelineEstimate.optimizationAdvice[i], EditorStyles.wordWrappedMiniLabel);
+                    }
+                }
 
                 if (_pipelineEstimate.exceedsTierThermalEnvelope)
                 {
