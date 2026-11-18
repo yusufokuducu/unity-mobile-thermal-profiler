@@ -1,6 +1,6 @@
 {
   "name": "com.yusufokuducu.mobile-thermal-profiler",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "displayName": "Mobile Thermal, Frame-Pacing & TBDR Bandwidth Profiler",
   "description": "Zero-allocation runtime thermal throttling tracker, FrameTimingManager 1%/0.1% low jitter analyzer, and TBDR GPU (Mali/Adreno/Apple) RenderTarget load/store memory bandwidth auditor for Unity Mobile.",
   "unity": "2022.3",
