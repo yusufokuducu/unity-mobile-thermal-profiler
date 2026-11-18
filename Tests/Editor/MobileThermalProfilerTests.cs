@@ -1,6 +1,8 @@
 using System;
 using NUnit.Framework;
+using UnityEngine;
 using UnityEngine.Experimental.Rendering;
+using YusufOkuducu.MobileThermalProfiler.Editor;
 
 namespace YusufOkuducu.MobileThermalProfiler.Tests
 {
@@ -209,6 +211,124 @@ namespace YusufOkuducu.MobileThermalProfiler.Tests
             Assert.IsFalse(leanPipeline.exceedsTierThermalEnvelope);
             Assert.Greater(heavyPipeline.bandwidthGbpsAt60Fps, leanPipeline.bandwidthGbpsAt60Fps * 3f);
             Assert.GreaterOrEqual(heavyPipeline.optimizationAdvice.Count, 3);
+        }
+
+        [Test]
+        public void McpBridge_AutoFixRenderTextures_And_AutoTuneUrpPipeline_EliminateBandwidthHazards()
+        {
+            var heavyRt = new RenderTexture
+            {
+                name = "HeavyCameraTarget",
+                width = 2400,
+                height = 1080,
+                antiAliasing = 4,
+                graphicsFormat = GraphicsFormat.R16G16B16A16_SFloat,
+                depthStencilFormat = GraphicsFormat.D24_UNorm_S8_UInt,
+                bindTextureMS = true,
+                useMipMap = true,
+                autoGenerateMips = true
+            };
+
+            RenderTextureAutoFixReport rtFix = MobileThermalProfilerMcpBridge.AutoFixRenderTextures(new[] { heavyRt });
+            Assert.AreEqual(1, rtFix.totalInspected);
+            Assert.AreEqual(1, rtFix.modifiedCount);
+            Assert.AreEqual(3, rtFix.appliedFixes.Count);
+            Assert.IsFalse(heavyRt.bindTextureMS);
+            Assert.AreEqual(GraphicsFormat.B10G11R11_UFloatPack32, heavyRt.graphicsFormat);
+            Assert.IsFalse(heavyRt.autoGenerateMips);
+            Assert.Less(rtFix.bandwidthGbpsAfter, rtFix.bandwidthGbpsBefore * 0.25f);
+            Assert.Greater(rtFix.dramPowerMilliwattsSavedAt60Fps, 400f);
+
+            // Auto-Tune URP Pipeline for MidRangeMainstream (4.5 GB/s budget)
+            UrpPipelineAutoTuneReport tuneReport = MobileThermalProfilerMcpBridge.AutoTuneUrpPipelineForSoCTier(
+                width: 2400,
+                height: 1080,
+                msaaSamples: 4,
+                colorFormat: GraphicsFormat.R16G16B16A16_SFloat,
+                cameraDepthTextureEnabled: true,
+                cameraOpaqueTextureEnabled: true,
+                postProcessingBloomEnabled: true,
+                shadowmapResolution: 2048,
+                socTier: MobileSoCTier.MidRangeMainstream);
+
+            Assert.IsTrue(tuneReport.beforeEstimate.exceedsTierThermalEnvelope);
+            Assert.IsTrue(tuneReport.modified);
+            Assert.IsFalse(tuneReport.afterEstimate.exceedsTierThermalEnvelope);
+            Assert.AreEqual(GraphicsFormat.B10G11R11_UFloatPack32, tuneReport.tunedColorFormat);
+            Assert.IsFalse(tuneReport.tunedOpaqueTextureEnabled);
+            Assert.Greater(tuneReport.dramPowerMilliwattsSavedAt60Fps, 300f);
+        }
+
+        [Test]
+        public void McpBridge_HandlesJsonRpcInitializeToolsListToolsCallAndErrors()
+        {
+            string initRes = MobileThermalProfilerMcpBridge.HandleJsonRpcRequest(
+                @"{""jsonrpc"":""2.0"",""id"":1,""method"":""initialize""}");
+            StringAssert.Contains(@"""protocolVersion"":""2024-11-05""", initRes);
+            StringAssert.Contains(@"""name"":""unity-mobile-thermal-profiler""", initRes);
+
+            string listRes = MobileThermalProfilerMcpBridge.HandleJsonRpcRequest(
+                @"{""jsonrpc"":""2.0"",""id"":2,""method"":""tools/list""}");
+            StringAssert.Contains("thermal_profiler.audit_render_textures", listRes);
+            StringAssert.Contains("thermal_profiler.simulate_urp_pipeline", listRes);
+            StringAssert.Contains("thermal_profiler.autotune_urp_pipeline", listRes);
+
+            string callSim = MobileThermalProfilerMcpBridge.HandleJsonRpcRequest(
+                @"{""jsonrpc"":""2.0"",""id"":3,""method"":""tools/call"",""params"":{""name"":""thermal_profiler.simulate_urp_pipeline"",""arguments"":{""width"":2400,""height"":1080,""msaaSamples"":4,""colorFormat"":""R16G16B16A16_SFloat"",""cameraDepthTextureEnabled"":true,""cameraOpaqueTextureEnabled"":true,""postProcessingBloomEnabled"":true,""shadowmapResolution"":2048,""socTier"":""MidRangeMainstream""}}}");
+            StringAssert.Contains(@"""exceedsTierThermalEnvelope"":true", callSim);
+            StringAssert.Contains(@"""isError"":false", callSim);
+
+            string callTune = MobileThermalProfilerMcpBridge.HandleJsonRpcRequest(
+                @"{""jsonrpc"":""2.0"",""id"":4,""method"":""tools/call"",""params"":{""name"":""thermal_profiler.autotune_urp_pipeline"",""arguments"":{""width"":2400,""height"":1080,""msaaSamples"":4,""colorFormat"":""R16G16B16A16_SFloat"",""cameraDepthTextureEnabled"":true,""cameraOpaqueTextureEnabled"":true,""postProcessingBloomEnabled"":true,""shadowmapResolution"":2048,""socTier"":""MidRangeMainstream""}}}");
+            StringAssert.Contains(@"""modified"":true", callTune);
+            StringAssert.Contains(@"""exceedsTierThermalEnvelopeAfter"":false", callTune);
+
+            string errUnknown = MobileThermalProfilerMcpBridge.HandleJsonRpcRequest(
+                @"{""jsonrpc"":""2.0"",""id"":99,""method"":""nonexistent""}");
+            StringAssert.Contains("-32601", errUnknown);
+        }
+
+        [Test]
+        public void UiToolkitWindow_BuildsBandwidthHeatmapFiltersRenderTexturesAndAutoTunesPipeline()
+        {
+            var win = new ThermalBandwidthProfilerWindow();
+            win.CreateGUI();
+            Assert.Greater(win.rootVisualElement.childCount, 0);
+
+            var rt1 = new RenderTexture
+            {
+                name = "ShadowMapAtlas",
+                width = 2048,
+                height = 2048,
+                antiAliasing = 1,
+                graphicsFormat = GraphicsFormat.None,
+                depthStencilFormat = GraphicsFormat.D16_UNorm
+            };
+            var rt2 = new RenderTexture
+            {
+                name = "UnresolvedColorMSAA",
+                width = 2400,
+                height = 1080,
+                antiAliasing = 4,
+                graphicsFormat = GraphicsFormat.R16G16B16A16_SFloat,
+                bindTextureMS = true
+            };
+
+            TbdrAuditReport customReport = TbdrBandwidthAuditor.AuditRenderTextures(new[] { rt1, rt2 });
+            win.SetCustomAuditReport(customReport);
+            Assert.AreEqual(2, win.GetFilteredFindings().Count);
+
+            win.SetSearchFilter("UnresolvedColorMSAA");
+            Assert.AreEqual(1, win.GetFilteredFindings().Count);
+            Assert.AreEqual("UnresolvedColorMSAA", win.GetFilteredFindings()[0].textureName);
+
+            win.ConfigurePipelineSimulator(
+                2400, 1080, 4, GraphicsFormat.R16G16B16A16_SFloat,
+                depthTex: true, opaqueTex: true, bloom: true, shadowRes: 2048, tier: MobileSoCTier.MidRangeMainstream);
+            Assert.IsTrue(win.CurrentPipelineEstimate.exceedsTierThermalEnvelope);
+
+            win.ApplyPipelineAutoTune();
+            Assert.IsFalse(win.CurrentPipelineEstimate.exceedsTierThermalEnvelope);
         }
     }
 }

@@ -1,10 +1,13 @@
 {
   "name": "com.yusufokuducu.mobile-thermal-profiler",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "displayName": "Mobile Thermal, Frame-Pacing & TBDR Bandwidth Profiler",
-  "description": "Zero-allocation runtime thermal throttling tracker, FrameTimingManager 1%/0.1% low jitter analyzer, and TBDR GPU (Mali/Adreno/Apple) RenderTarget load/store memory bandwidth auditor for Unity Mobile.",
+  "description": "Zero-allocation runtime thermal throttling tracker, FrameTimingManager 1%/0.1% low jitter analyzer, TBDR GPU (Mali/Adreno/Apple) RenderTarget load/store memory bandwidth auditor, UI Toolkit thermal heatmap, and MCP / AI Agent auto-tuner for Unity Mobile.",
   "unity": "2022.3",
   "unityRelease": "0f1",
+  "documentationUrl": "https://github.com/yusufokuducu/unity-mobile-thermal-profiler#readme",
+  "changelogUrl": "https://github.com/yusufokuducu/unity-mobile-thermal-profiler/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/yusufokuducu/unity-mobile-thermal-profiler/blob/main/LICENSE",
   "keywords": [
     "mobile",
     "profiler",
@@ -13,6 +16,8 @@
     "bandwidth",
     "frame-pacing",
     "urp",
+    "mcp",
+    "ui-toolkit",
     "performance"
   ],
   "author": {
