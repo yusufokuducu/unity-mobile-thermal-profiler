@@ -244,6 +244,15 @@ namespace YusufOkuducu.MobileThermalProfiler.Editor
                 current = Recalc(width, height, msaaSamples, report);
             }
 
+            // Step 6: Further downscale shadowmap atlas to 512x512 if still exceeding budget
+            if (current.exceedsTierThermalEnvelope && report.tunedShadowResolution > 512)
+            {
+                report.tunedShadowResolution = 512;
+                report.appliedOptimizations.Add(
+                    "Reduced Shadowmap Atlas resolution to 512x512 for strict Entry-Level SoC thermal budget.");
+                current = Recalc(width, height, msaaSamples, report);
+            }
+
             report.afterEstimate = current;
             report.modified = report.appliedOptimizations.Count > 0;
             report.dramPowerMilliwattsSavedAt60Fps = Math.Max(0f, before.estimatedDramPowerMilliwattsAt60Fps - current.estimatedDramPowerMilliwattsAt60Fps);
@@ -323,9 +332,12 @@ namespace YusufOkuducu.MobileThermalProfiler.Editor
 
             if (string.Equals(method, "tools/call", StringComparison.Ordinal))
             {
-                string toolName = ExtractJsonStringField(trimmed, "name");
+                string paramsObj = ExtractJsonObjectField(trimmed, "params") ?? trimmed;
+                string toolName = ExtractJsonStringField(paramsObj, "name");
                 if (string.IsNullOrEmpty(toolName))
                     return BuildJsonRpcError(idRaw, -32602, "Invalid params: Missing tool 'name' in tools/call.");
+
+                string argsObj = ExtractJsonObjectField(paramsObj, "arguments") ?? paramsObj;
 
                 if (string.Equals(toolName, "thermal_profiler.audit_render_textures", StringComparison.Ordinal))
                 {
@@ -337,7 +349,7 @@ namespace YusufOkuducu.MobileThermalProfiler.Editor
 
                 if (string.Equals(toolName, "thermal_profiler.simulate_urp_pipeline", StringComparison.Ordinal))
                 {
-                    ParseUrpParams(trimmed, out int w, out int h, out int msaa, out GraphicsFormat fmt,
+                    ParseUrpParams(argsObj, out int w, out int h, out int msaa, out GraphicsFormat fmt,
                         out bool depth, out bool opaque, out bool bloom, out int shadow, out MobileSoCTier tier);
 
                     UrpPipelineBandwidthEstimate est = TbdrBandwidthAuditor.EstimateUrpCameraPipelineBandwidth(
@@ -349,7 +361,7 @@ namespace YusufOkuducu.MobileThermalProfiler.Editor
 
                 if (string.Equals(toolName, "thermal_profiler.autotune_urp_pipeline", StringComparison.Ordinal))
                 {
-                    ParseUrpParams(trimmed, out int w, out int h, out int msaa, out GraphicsFormat fmt,
+                    ParseUrpParams(argsObj, out int w, out int h, out int msaa, out GraphicsFormat fmt,
                         out bool depth, out bool opaque, out bool bloom, out int shadow, out MobileSoCTier tier);
 
                     UrpPipelineAutoTuneReport tune = AutoTuneUrpPipelineForSoCTier(
@@ -642,31 +654,197 @@ namespace YusufOkuducu.MobileThermalProfiler.Editor
 
         internal static string ExtractJsonRpcIdRaw(string json)
         {
-            var m = Regex.Match(json, @"""id""\s*:\s*(""[^""\\]*(?:\\.[^""\\]*)*""|-?\d+|null)");
-            return m.Success ? m.Groups[1].Value : "null";
+            if (TryGetDirectJsonPropertyValue(json, "id", out string rawVal) && !string.IsNullOrEmpty(rawVal))
+            {
+                return rawVal;
+            }
+            return "null";
+        }
+
+        internal static string ExtractJsonObjectField(string json, string fieldName)
+        {
+            if (TryGetDirectJsonPropertyValue(json, fieldName, out string rawVal) &&
+                !string.IsNullOrEmpty(rawVal) &&
+                rawVal[0] == '{')
+            {
+                return rawVal;
+            }
+            return null;
         }
 
         internal static string ExtractJsonStringField(string json, string fieldName)
         {
-            string pattern = $@"""{Regex.Escape(fieldName)}""\s*:\s*""((?:[^""\\]|\\.)*)""";
-            Match m = Regex.Match(json, pattern);
-            return m.Success ? m.Groups[1].Value : null;
+            if (TryGetDirectJsonPropertyValue(json, fieldName, out string rawVal) &&
+                !string.IsNullOrEmpty(rawVal) &&
+                rawVal.Length >= 2 &&
+                rawVal[0] == '"' &&
+                rawVal[rawVal.Length - 1] == '"')
+            {
+                return UnescapeJsonString(rawVal.Substring(1, rawVal.Length - 2));
+            }
+            return null;
         }
 
         internal static int ExtractJsonIntField(string json, string fieldName, int defaultValue)
         {
-            string pattern = $@"""{Regex.Escape(fieldName)}""\s*:\s*(-?\d+)";
-            Match m = Regex.Match(json, pattern);
-            return (m.Success && int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int val))
-                ? val
-                : defaultValue;
+            if (TryGetDirectJsonPropertyValue(json, fieldName, out string rawVal) &&
+                int.TryParse(rawVal, NumberStyles.Integer, CultureInfo.InvariantCulture, out int val))
+            {
+                return val;
+            }
+            return defaultValue;
         }
 
         internal static bool ExtractJsonBoolField(string json, string fieldName, bool defaultValue)
         {
-            string pattern = $@"""{Regex.Escape(fieldName)}""\s*:\s*(true|false)";
-            Match m = Regex.Match(json, pattern);
-            return m.Success ? string.Equals(m.Groups[1].Value, "true", StringComparison.Ordinal) : defaultValue;
+            if (TryGetDirectJsonPropertyValue(json, fieldName, out string rawVal))
+            {
+                if (string.Equals(rawVal, "true", StringComparison.Ordinal)) return true;
+                if (string.Equals(rawVal, "false", StringComparison.Ordinal)) return false;
+            }
+            return defaultValue;
+        }
+
+        internal static bool TryGetDirectJsonPropertyValue(string jsonObject, string propertyName, out string rawValue)
+        {
+            rawValue = null;
+            if (string.IsNullOrWhiteSpace(jsonObject) || string.IsNullOrEmpty(propertyName))
+                return false;
+
+            string s = jsonObject.Trim();
+            if (s.Length < 2 || s[0] != '{')
+                return false;
+
+            int i = 1;
+            int len = s.Length;
+            while (i < len)
+            {
+                while (i < len && (char.IsWhiteSpace(s[i]) || s[i] == ','))
+                    i++;
+                if (i >= len || s[i] == '}')
+                    break;
+
+                if (s[i] != '"')
+                    break;
+
+                int keyStart = i + 1;
+                i = SkipJsonStringLiteral(s, i);
+                int keyEnd = Math.Max(keyStart, i - 1);
+                string key = UnescapeJsonString(s.Substring(keyStart, keyEnd - keyStart));
+
+                while (i < len && char.IsWhiteSpace(s[i]))
+                    i++;
+                if (i >= len || s[i] != ':')
+                    break;
+                i++;
+
+                while (i < len && char.IsWhiteSpace(s[i]))
+                    i++;
+                if (i >= len)
+                    break;
+
+                int valStart = i;
+                i = SkipJsonValue(s, i);
+                int valEnd = i;
+
+                if (string.Equals(key, propertyName, StringComparison.Ordinal))
+                {
+                    rawValue = s.Substring(valStart, valEnd - valStart).Trim();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static int SkipJsonStringLiteral(string s, int quoteStartIdx)
+        {
+            int i = quoteStartIdx + 1;
+            while (i < s.Length)
+            {
+                char c = s[i++];
+                if (c == '\\' && i < s.Length)
+                    i++;
+                else if (c == '"')
+                    break;
+            }
+            return i;
+        }
+
+        private static int SkipJsonValue(string s, int valStartIdx)
+        {
+            int i = valStartIdx;
+            if (i >= s.Length)
+                return i;
+
+            char c = s[i];
+            if (c == '"')
+                return SkipJsonStringLiteral(s, i);
+
+            if (c == '{' || c == '[')
+            {
+                int depth = 0;
+                while (i < s.Length)
+                {
+                    char ch = s[i];
+                    if (ch == '"')
+                    {
+                        i = SkipJsonStringLiteral(s, i);
+                        continue;
+                    }
+                    if (ch == '{' || ch == '[') depth++;
+                    else if (ch == '}' || ch == ']')
+                    {
+                        depth--;
+                        if (depth == 0)
+                            return i + 1;
+                    }
+                    i++;
+                }
+                return i;
+            }
+
+            while (i < s.Length && s[i] != ',' && s[i] != '}' && s[i] != ']' && !char.IsWhiteSpace(s[i]))
+                i++;
+            return i;
+        }
+
+        private static string UnescapeJsonString(string escaped)
+        {
+            if (string.IsNullOrEmpty(escaped)) return string.Empty;
+            var sb = new StringBuilder(escaped.Length);
+            for (int i = 0; i < escaped.Length; i++)
+            {
+                char c = escaped[i];
+                if (c == '\\' && i + 1 < escaped.Length)
+                {
+                    char next = escaped[++i];
+                    switch (next)
+                    {
+                        case '"': sb.Append('"'); break;
+                        case '\\': sb.Append('\\'); break;
+                        case '/': sb.Append('/'); break;
+                        case 'b': sb.Append('\b'); break;
+                        case 'f': sb.Append('\f'); break;
+                        case 'n': sb.Append('\n'); break;
+                        case 'r': sb.Append('\r'); break;
+                        case 't': sb.Append('\t'); break;
+                        case 'u':
+                            if (i + 4 < escaped.Length &&
+                                int.TryParse(escaped.Substring(i + 1, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int code))
+                            {
+                                sb.Append((char)code);
+                                i += 4;
+                            }
+                            break;
+                        default: sb.Append(next); break;
+                    }
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+            }
+            return sb.ToString();
         }
     }
 }

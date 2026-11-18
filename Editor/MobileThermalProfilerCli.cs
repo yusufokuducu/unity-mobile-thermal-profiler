@@ -45,7 +45,12 @@ namespace YusufOkuducu.MobileThermalProfiler.Editor
         /// MCP / AI Agent batchmode entrypoint outputting structured JSON TBDR bandwidth & LPDDR power diagnostics:
         /// unity -batchmode -quit -projectPath . -executeMethod YusufOkuducu.MobileThermalProfiler.Editor.MobileThermalProfilerCli.RunMcpAuditJson
         /// </summary>
-        public static string RunMcpAuditJson(MobileSoCTier socTier = MobileSoCTier.MidRangeMainstream)
+        public static string RunMcpAuditJson()
+        {
+            return RunMcpAuditJson(MobileSoCTier.MidRangeMainstream);
+        }
+
+        public static string RunMcpAuditJson(MobileSoCTier socTier)
         {
             TbdrAuditReport rtReport = TbdrBandwidthAuditor.AuditActiveRenderTextures();
             UrpPipelineBandwidthEstimate defaultPipeline = TbdrBandwidthAuditor.EstimateUrpCameraPipelineBandwidth(

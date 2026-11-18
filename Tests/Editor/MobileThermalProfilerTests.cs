@@ -329,6 +329,16 @@ namespace YusufOkuducu.MobileThermalProfiler.Tests
 
             win.ApplyPipelineAutoTune();
             Assert.IsFalse(win.CurrentPipelineEstimate.exceedsTierThermalEnvelope);
+
+            // Verify JSON-RPC 2.0 handles alphabetical key order ("arguments" before "name", "id" at end) and unicode escapes
+            string reorderedJson =
+                "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"arguments\":{\"width\":2400,\"height\":1080,\"msaaSamples\":4,\"colorFormat\":\"R16G16B16A16_SFloat\",\"cameraDepthTextureEnabled\":true,\"cameraOpaqueTextureEnabled\":true,\"postProcessingBloomEnabled\":true,\"shadowmapResolution\":2048,\"socTier\":\"EntryLevelBudget\"},\"name\":\"thermal_profiler.autotune_urp_pipeline\"},\"id\":77}";
+            string rpcRes = MobileThermalProfilerMcpBridge.HandleJsonRpcRequest(reorderedJson);
+            StringAssert.Contains("\"id\":77", rpcRes);
+            StringAssert.Contains("\"exceedsTierThermalEnvelopeAfter\":false", rpcRes);
+
+            // Verify parameterless CLI overload exists for Unity -executeMethod
+            Assert.IsNotNull(typeof(MobileThermalProfilerCli).GetMethod("RunMcpAuditJson", Type.EmptyTypes));
         }
     }
 }
